@@ -25,6 +25,10 @@ void main() {
 }
 """
 
+# Constants
+FW: float = FRAME_WIDTH
+FH: float = FRAME_HEIGHT
+
 # Colors
 NAVY_BLUE = "#0066CC"
 DARK_BLUE = "#2A9DF4"

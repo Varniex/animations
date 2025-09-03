@@ -1,19 +1,19 @@
 import os
 import re
 import numpy as np
+from custom.constants import CYAN, FW, FH
 from manimlib.utils.shaders import get_shader_code_from_file
-from manimlib.constants import UL, DL, UR, DR, FRAME_HEIGHT
+from manimlib.constants import UL, DL, UR, DR, FRAME_HEIGHT, RED, UP
+from manimlib.mobject.types.surface import Surface
 from manimlib.mobject.mobject import Mobject
 from manimlib.mobject.geometry import Polygon, RegularPolygon
+from manimlib.mobject.svg.text_mobject import Text
+from manimlib.mobject.shape_matchers import Underline
 
 
 class Star(Polygon):
     def __init__(
-            self,
-            n: int = 6,
-            inner_radius: float = 1.0,
-            outer_radius: float = 2.0,
-            **kwargs
+        self, n: int = 6, inner_radius: float = 1.0, outer_radius: float = 2.0, **kwargs
     ):
         inner_polygon = RegularPolygon(n=n)
         outer_polygon = inner_polygon.copy()
@@ -96,3 +96,50 @@ class ShaderMobject(Mobject):
             self.shader_wrapper.init_vertex_objects()
             self.shader_wrapper.init_program()
             self.shader_wrapper.refresh_id()
+
+
+class TitleText(Text):
+    def __init__(
+        self,
+        text: str,
+        gr: list[str] = [CYAN, RED],
+        font: str = "Lobster Two",
+        underline: bool = True,
+        **kwargs,
+    ):
+        self.gr = gr
+        super().__init__(text, font=font, **kwargs)
+        self.to_edge(UP, buff=0.5)
+        self.set_color_by_gradient(*gr)
+
+        if underline:
+            self.add_underline()
+
+    def add_underline(self):
+        underline = self.underline = Underline(
+            self, stroke_color=CYAN, stretch_factor=1
+        )
+        underline.set_stroke(width=4, opacity=1)
+        underline.set_color_by_gradient(*self.gr)
+        self.add(underline)
+
+
+class Rectangle3D(Surface):
+    def __init__(
+        self,
+        width: float = FW,
+        height: float = FH,
+        resolution=(101, 101),
+        color=CYAN,
+        **kwargs,
+    ):
+        super().__init__(
+            color=color,
+            u_range=(-width / 2, width / 2),
+            v_range=(-height / 2, height / 2),
+            resolution=resolution,
+            **kwargs,
+        )
+
+    def uv_func(self, u: float, v: float) -> np.ndarray:
+        return np.array([u, v, 0])
