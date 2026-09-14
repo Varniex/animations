@@ -1,8 +1,9 @@
-import os
-import re
+from __future__ import annotations
+
 import numpy as np
+from manimlib.renderer.shader_source import read_shader_file
+from manimlib.renderer.uniform_block import uniform_block_dtype, COMMON_UNIFORMS, Uniforms
 from custom.constants import CYAN, FW, FH
-from manimlib.utils.shaders import get_shader_code_from_file
 from manimlib.constants import UL, DL, UR, DR, FRAME_HEIGHT, RED, UP
 from manimlib.mobject.types.surface import Surface
 from manimlib.mobject.mobject import Mobject
@@ -10,11 +11,15 @@ from manimlib.mobject.geometry import Polygon, RegularPolygon
 from manimlib.mobject.svg.text_mobject import Text
 from manimlib.mobject.shape_matchers import Underline
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from manimlib.typing import Self
+    from manimlib.camera.camera import Camera
+
 
 class Star(Polygon):
-    def __init__(
-        self, n: int = 6, inner_radius: float = 1.0, outer_radius: float = 2.0, **kwargs
-    ):
+    def __init__(self, n: int = 6, inner_radius: float = 1.0, outer_radius: float = 2.0, **kwargs):
         inner_polygon = RegularPolygon(n=n)
         outer_polygon = inner_polygon.copy()
 
@@ -37,65 +42,46 @@ class Star(Polygon):
 class ShaderMobject(Mobject):
     def __init__(
         self,
-        shader_folder: str,
+        shader_file: str,
         data_dtype: np.dtype = [("point", np.float32, (3,))],
         height: float = FRAME_HEIGHT,
         aspect_ratio: float = 16 / 9,
+        verts_per_record: int = 6,
         **kwargs,
     ):
         self.aspect_ratio = aspect_ratio
-        self.shader_folder = shader_folder
+        self.shader_file = shader_file
         self.data_dtype = data_dtype
-
+        self.verts_per_record = verts_per_record
+        self.uniform_types = {*COMMON_UNIFORMS, ("iTime", 1), ("iMouse", 2), ("iResolution", 2)}
+        self.uniform_dtype = uniform_block_dtype(*self.uniform_types)
         super().__init__(**kwargs)
+
         self.set_height(height, stretch=True)
         self.set_width(height * aspect_ratio, stretch=True)
 
     def init_data(self, length: int = 4) -> None:
         super().init_data(length=length)
-        self.data["point"][:] = [UL, DL, UR, DR]
+        self.data["point"] = [UL, DL, UR, DR]
 
     def set_color(self, *args, **kwargs):
         return self
 
-    @Mobject.affects_data
-    def refresh(self) -> None:
-        """
-        This is used to reload the shaders files
-        (frag.glsl, vert.glsl, geom.glsl) in the embed mode.
-        """
+    def refresh(self, camera: Camera) -> None:
+        read_shader_file.cache_clear()
+        self.shader_code_replacements = dict(self.shader_code_replacements)
+        camera.renderer.materials.clear()
 
-        for shader_type in ["fragment", "vertex", "geometry"]:
-            file_name = f"{shader_type[:4]}.glsl"
-            filepath = os.path.join(self.shader_folder, file_name)
+    def add_uniforms(self, *uniforms: tuple[str, int]) -> None:
+        self.uniform_types = self.uniform_types.union(set(uniforms))
+        self.uniform_dtype = uniform_block_dtype(*self.uniform_types)
+        self.uniforms = Uniforms(self.uniform_dtype)
 
-            if not os.path.exists(filepath):
-                if shader_type == "geometry":
-                    # most of the time, geom.glsl is not required
-                    continue
-                else:
-                    raise FileNotFoundError(
-                        f"{file_name} isn't found at the specified location."
-                    )
-
-            with open(filepath, "r") as f:
-                refreshed_code = f.read()
-
-            # taken directly from 3b1b/manim
-            insertions = re.findall(
-                r"^#INSERT .*\.glsl$", refreshed_code, flags=re.MULTILINE
-            )
-
-            for line in insertions:
-                inserted_code = get_shader_code_from_file(
-                    os.path.join("inserts", line.replace("#INSERT ", ""))
-                )
-                refreshed_code = refreshed_code.replace(line, inserted_code)
-
-            self.shader_wrapper.program_code[f"{shader_type}_shader"] = refreshed_code
-            self.shader_wrapper.init_vertex_objects()
-            self.shader_wrapper.init_program()
-            self.shader_wrapper.refresh_id()
+    def set_uniform(self, uniform: dict = {}, **kwargs) -> Self:
+        uniform.update(kwargs)
+        if unif := [(k, np.array(v).size) for k, v in uniform.items() if k not in self.uniforms]:
+            self.add_uniforms(*unif)
+        return super().set_uniform(**uniform)
 
 
 class TitleText(Text):
@@ -116,9 +102,7 @@ class TitleText(Text):
             self.add_underline()
 
     def add_underline(self):
-        underline = self.underline = Underline(
-            self, stroke_color=CYAN, stretch_factor=1
-        )
+        underline = self.underline = Underline(self, stroke_color=CYAN, stretch_factor=1)
         underline.set_stroke(width=4, opacity=1)
         underline.set_color_by_gradient(*self.gr)
         self.add(underline)
